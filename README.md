@@ -39,6 +39,17 @@ Phone-only additions: vibration (heartbeat buzz while Noise sprints, jumpscare s
 timeout** (default 120 s: Noise loses interest), no spawns while the screen is off or locked,
 optional start on boot.
 
+## Battery
+Between rounds the app does essentially nothing: one sleeping timer (it doesn't wake the phone
+from deep sleep), no wakelocks, no polling, overlays detached, audio players released. Power is
+only spent while a round is running, so the main levers are fewer / shorter rounds (raise
+*Min delay*, lower *Round timeout*). Per round the game now:
+- ticks at ~60 Hz only while Noise is actually chasing, ~20 Hz when it's frozen, 10 Hz while the TV
+  emerges and 4 Hz during fullscreen scenes (it used to tick at 100 Hz the whole time);
+- redraws the full-screen overlay only when something moved or faded (not every tick);
+- frees all 16 audio decoders when the round ends;
+- under Android's **Battery Saver**: ~30 Hz chase ticks and no vibration.
+
 ## Safety valves (the takeover swallows touches, so there are several ways out)
 Home/back gestures still work; the notification's **Stop** works (pull the shade down); the round
 timeout ends the round; the takeover is never attached outside a round.

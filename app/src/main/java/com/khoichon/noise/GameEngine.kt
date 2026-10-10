@@ -1,6 +1,7 @@
 package com.khoichon.noise
 
 import android.content.Context
+import android.os.PowerManager
 import android.os.SystemClock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -39,7 +40,13 @@ class GameEngine(
         private const val NOISE_IDLE_THRESHOLD_DP = 30f
         private const val DEATH_DISTANCE_DP = 32f
         private const val FIRE_ALARM_FADE_DISTANCE_DP = 100f
-        private const val TICK_MS = 10L
+        // Game-loop pacing. Full rate only while Noise is actually chasing; slower when frozen,
+        // while the TV emerges, and during fullscreen scenes (the loop has nothing to do then).
+        private const val TICK_ACTIVE_MS = 16L
+        private const val TICK_ACTIVE_SAVER_MS = 33L
+        private const val TICK_FROZEN_MS = 50L
+        private const val TICK_WAITING_MS = 100L
+        private const val TICK_FX_MS = 250L
         private const val EMERGE_MS = 8720L
         private const val HIJACK_EMERGE_MS = 13000L
         private const val JUMPSCARE_MS = 9840L
@@ -85,7 +92,9 @@ class GameEngine(
         hijackJumpscareS, reverseSound
     )
 
-    private val haptics = Haptics(context) { cfg.haptics }
+    private val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+    private var batterySaver = false // sampled at the start of each round
+    private val haptics = Haptics(context) { cfg.haptics && !batterySaver }
 
     // ---- game state (Global.cs + MainWindow fields) ----
     private var tvOn = false
@@ -116,6 +125,8 @@ class GameEngine(
     private var threatHaptics = false
 
     private var fireAlarmLeft = 0
+    private var lastActive = false
+    private var lastSceneSig = 0
 
     private var tickJob: Job? = null
     private var fxJob: Job? = null
@@ -293,9 +304,35 @@ class GameEngine(
                 val t = now()
                 tick(t, (t - last).coerceIn(0L, 50L))
                 last = t
-                delay(TICK_MS)
+                delay(nextTickDelay())
             }
         }
+    }
+
+    /** How long the loop can sleep before the next tick, given what the game is doing. */
+    private fun nextTickDelay(): Long = when {
+        fxPlaying -> TICK_FX_MS
+        !tvOn && !reversingFlight -> TICK_WAITING_MS      // emerging / waiting / handing over
+        lastActive -> if (batterySaver) TICK_ACTIVE_SAVER_MS else TICK_ACTIVE_MS
+        else -> TICK_FROZEN_MS                            // Noise is frozen: nothing moves
+    }
+
+    /** Cheap fingerprint of everything the takeover draws, to redraw only when it changed. */
+    private fun sceneSignature(): Int {
+        var h = if (state.noiseVisible) 1 else 0
+        if (state.noiseVisible) {
+            h = h * 31 + noiseX.toInt()
+            h = h * 31 + noiseY.toInt()
+            h = h * 31 + state.noiseAnim.hashCode()
+        }
+        for (a in state.alarms) {
+            if (!a.visible) continue
+            h = h * 31 + a.id
+            h = h * 31 + a.x.toInt()
+            h = h * 31 + a.y.toInt()
+            h = h * 31 + (a.opacity * 32f).toInt()
+        }
+        return h
     }
 
     /** Keep the overlay windows matching the game state. */
@@ -331,6 +368,7 @@ class GameEngine(
         setTvMode("off")
         silenceAll()
         haptics.stopAll()
+        allSounds.forEach { it.release() } // free the 16 decoders between rounds (re-made lazily)
         syncOverlay()
         tickJob?.cancel()
     }
@@ -354,6 +392,7 @@ class GameEngine(
         cursorPositions.clear()
         pressedTaps.clear()
         tapDebounce = 0
+        batterySaver = powerManager.isPowerSaveMode
         reverseSound.preload() // so its real length is known if the TV gets fed mid-round
 
         // the finger starts "at the middle of the screen" until you touch it
@@ -428,7 +467,11 @@ class GameEngine(
         lastCurX = cx; lastCurY = cy; haveLast = true
         broadcastNoise()
         syncOverlay()
-        overlay.invalidateScene()
+        val sig = sceneSignature()
+        if (sig != lastSceneSig) { // redraw only when something actually moved or faded
+            lastSceneSig = sig
+            overlay.invalidateScene()
+        }
     }
 
     private fun handleDeathCheck(cx: Float, cy: Float) {
@@ -508,6 +551,7 @@ class GameEngine(
 
         val active = ((!isHijacked && (moved || tapDebounce > 0)) ||
             (isHijacked && !hijackPause && !hijackWaiting)) && tvOn
+        lastActive = active
 
         if (!active) {
             noiseIdle.pause()
@@ -637,7 +681,7 @@ class GameEngine(
             setNoise(lerp(fromX, goalX, f), lerp(fromY, goalY, f))
             broadcastNoise()
             if (f >= 1f) break
-            delay(TICK_MS)
+            delay(TICK_ACTIVE_MS)
         }
         setNoise(goalX, goalY)
 
