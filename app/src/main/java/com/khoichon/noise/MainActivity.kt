@@ -264,6 +264,12 @@ class MainActivity : ComponentActivity() {
         col.addView(adminStatus)
         adminButton = button("Grant screen-lock permission") { toggleAdmin() }
         col.addView(adminButton)
+        col.addView(text(
+            "Lock the screen: when Noise catches you, the phone locks while the jumpscare shows PAUSE, " +
+                "and the PLAY + fade-out finishes on your lock screen the next time you switch it on. " +
+                "If you were hijacked, it locks right after the jumpscare instead.",
+            11f, margin = 4, color = 0xAAFFFFFF.toInt()
+        ))
         col.addView(text("A phone can't be shut down by an app, so the desktop \"crash\" and custom-command options don't exist here.", 11f, margin = 4, color = 0xAAFFFFFF.toInt()))
 
         // ---- test mode ----

@@ -56,6 +56,15 @@ your phone again while the last frames fade out (measured from the frames: jumps
 9.84 s, hijack jumpscare from 6.8 s of 9.84 s, fire alarm from 13.7 s of 22 s). 79% because
 Android 12+ only lets touches pass through overlays that are at most 80% opaque.
 
+**Lock the screen (opt-in):** overlays can't draw over the lock screen, so this uses a small
+show-when-locked activity (`LockScreenActivity`).
+- *Normal death:* while the jumpscare shows PAUSE (from 4.7 s), the phone is locked. The next time
+  you switch it on, the rest of the scene (PLAY, then the fade-out: `jumpscare_tail.webp`, from
+  5.92 s) plays directly over the lock screen, with the death audio resumed in sync, then goes away.
+- *Hijack death:* the phone is locked right after the jumpscare ends (no tail).
+- If the activity can't start, the phone is simply locked when the jumpscare ends.
+Needs the screen-lock (device admin) permission; test mode skips it.
+
 ## Safety valves (the takeover swallows touches, so there are several ways out)
 Home/back gestures still work; the notification's **Stop** works (pull the shade down); the round
 timeout ends the round; the takeover is never attached outside a round.

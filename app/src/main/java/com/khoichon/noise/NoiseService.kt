@@ -43,8 +43,17 @@ class NoiseService : Service() {
         private const val CHANNEL_ID = "noise"
         private const val NOTIF_ID = 1
 
+        const val LOCK_EVENT_LOCKED = 1
+        const val LOCK_EVENT_TAIL_STARTED = 2
+        const val LOCK_EVENT_TAIL_DONE = 3
+
         @Volatile
         var running = false
+            private set
+
+        /** The live service (same process as the activities), so [LockScreenActivity] can report back. */
+        @Volatile
+        var current: NoiseService? = null
             private set
     }
 
@@ -59,10 +68,14 @@ class NoiseService : Service() {
     override fun onCreate() {
         super.onCreate()
         running = true
+        current = this
         cfg = Config(this)
         overlay = OverlayController(this, SceneState())
         engine = GameEngine(this, cfg, overlay, scope)
         engine.onDeath = { runDeathConsequences() }
+        engine.lockAvailable = { adminActive() }
+        engine.onLockPrepare = { startLockScreenActivity() }
+        engine.onLockNow = { lockPhone() }
         createChannel()
         ServiceCompat.startForeground(this, NOTIF_ID, buildNotification(), foregroundType())
         restartTimer()
@@ -94,6 +107,7 @@ class NoiseService : Service() {
 
     override fun onDestroy() {
         running = false
+        current = null
         timerJob?.cancel()
         engine.release()
         overlay.release()
@@ -125,20 +139,47 @@ class NoiseService : Service() {
 
     // ---------------------------------------------------------------- death consequences
 
+    private fun adminActive(): Boolean {
+        val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+        return dpm.isAdminActive(ComponentName(this, NoiseAdmin::class.java))
+    }
+
+    private fun lockPhone() {
+        runCatching {
+            val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+            if (adminActive()) dpm.lockNow()
+        }
+    }
+
+    /** Jumpscare, mid-PAUSE: bring up the activity that locks the phone and waits to play the tail. */
+    private fun startLockScreenActivity() {
+        val i = Intent(this, LockScreenActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
+        // allowed from here: our overlay is on screen. If it still fails the engine falls back to
+        // a plain lock when the jumpscare ends.
+        runCatching { startActivity(i) }
+    }
+
+    /** From [LockScreenActivity] (main thread): the phone got locked / the tail started / ended. */
+    fun lockEvent(kind: Int) {
+        when (kind) {
+            LOCK_EVENT_LOCKED -> engine.onDeathLocked()
+            LOCK_EVENT_TAIL_STARTED -> engine.onDeathTailStarted()
+            LOCK_EVENT_TAIL_DONE -> engine.onDeathTailDone()
+        }
+    }
+
     private fun runDeathConsequences() {
         if (cfg.testMode) return // test mode never applies them
         when (cfg.deathAction) {
             DeathAction.NONE -> Unit
+            DeathAction.LOCK -> Unit // handled by the jumpscare-synced lock plan in the engine
             DeathAction.HOME -> runCatching {
                 startActivity(
                     Intent(Intent.ACTION_MAIN)
                         .addCategory(Intent.CATEGORY_HOME)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 )
-            }
-            DeathAction.LOCK -> runCatching {
-                val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
-                if (dpm.isAdminActive(ComponentName(this, NoiseAdmin::class.java))) dpm.lockNow()
             }
         }
     }

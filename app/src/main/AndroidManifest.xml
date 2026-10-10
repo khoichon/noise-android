@@ -39,6 +39,17 @@
             </intent-filter>
         </activity>
 
+        <!-- Locks the phone mid-jumpscare, then plays the rest of the scene over the lock screen -->
+        <activity
+            android:name=".LockScreenActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleInstance"
+            android:screenOrientation="portrait"
+            android:showWhenLocked="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Noise.LockScreen" />
+
         <service
             android:name=".NoiseService"
             android:exported="false"

@@ -59,6 +59,13 @@ class GameEngine(
 
         // When more than half of each fullscreen scene is transparent for good (measured from the
         // encoded frames), the overlay stops swallowing touches and drops to 79% opacity.
+        // "Lock the screen" death consequence, timed to the jumpscare's HUD text (measured from
+        // the frames): PAUSE is on screen 4.40-5.92 s, PLAY 5.92-7.68 s, then the fade-out.
+        // The lock screen activity is started during PAUSE; the PLAY + fade tail (the clip
+        // jumpscare_tail.webp, from 5.92 s) plays when the phone is next woken.
+        private const val LOCK_PREPARE_MS = 4700L
+        private const val TAIL_START_SEC = 5.92
+
         private const val JUMPSCARE_PASS_MS = 8200L
         private const val HIJACK_JUMPSCARE_PASS_MS = 6800L
         private const val FIRE_ALARM_PASS_MS = 13680L
@@ -66,6 +73,15 @@ class GameEngine(
 
     /** Called ~5.2 s after the jumpscare starts (the service runs the opt-in consequences). */
     var onDeath: () -> Unit = {}
+
+    /** Start the show-when-locked activity that will lock the phone mid-PAUSE. */
+    var onLockPrepare: () -> Unit = {}
+
+    /** Lock the phone right now (hijack death after its jumpscare, or the fallback). */
+    var onLockNow: () -> Unit = {}
+
+    /** True if "Lock the screen" is selected and actually possible (permission granted). */
+    var lockAvailable: () -> Boolean = { false }
 
     val state: SceneState = overlay.state
 
@@ -131,6 +147,8 @@ class GameEngine(
     private var threatHaptics = false
 
     private var fireAlarmLeft = 0
+    private var deathLocked = false      // the lock screen activity has locked the phone
+    private var holdDeathAudio = false   // death sounds paused, waiting for the tail to play
     private var lastActive = false
     private var lastSceneSig = 0
 
@@ -154,7 +172,10 @@ class GameEngine(
     // ---------------------------------------------------------------- public API
 
     /** Call Noise out now (a no-op while a round is running). */
-    fun spawn() { scope.launch { noiseEmerge() } }
+    fun spawn() {
+        onDeathTailDone() // the phone is unlocked and in use again: the held tail audio is moot
+        scope.launch { noiseEmerge() }
+    }
 
     /** The RANS0M drop: hijack Noise (reversing it into the TV first if it is out). */
     fun hijack() { scope.launch { onHijackTrigger() } }
@@ -164,6 +185,7 @@ class GameEngine(
         curX = curX.coerceIn(0f, w.toFloat())
         curY = curY.coerceIn(0f, h.toFloat())
         for (a in state.alarms) if (!a.pulled && !alarmOnScreen(a, w, h)) replaceAlarm(a)
+        moveAlarmsOffTv() // the TV is re-laid-out on rotation too
     }
 
     fun release() {
@@ -200,18 +222,7 @@ class GameEngine(
     }
 
     override fun onTvMoved() {
-        if (!tvOn) return
-        // if the dragged TV now covers an un-pulled alarm, it moves out of the way
-        val r = overlay.tvRect()
-        val pad = dp(20f)
-        val aw = dp(ALARM_W_DP)
-        val ah = dp(ALARM_H_DP)
-        for (a in state.alarms) {
-            if (a.pulled) continue
-            val covers = a.x + aw > r.left - pad && a.x < r.right + pad &&
-                a.y + ah > r.top - pad && a.y < r.bottom + pad
-            if (covers) replaceAlarm(a)
-        }
+        if (tvOn) moveAlarmsOffTv()
     }
 
     // ---------------------------------------------------------------- fire alarms
@@ -225,7 +236,27 @@ class GameEngine(
     private fun alarmOnScreen(a: Alarm, w: Int, h: Int) =
         a.x >= 0 && a.y >= 0 && a.x + dp(ALARM_W_DP) <= w && a.y + dp(ALARM_H_DP) <= h
 
-    /** A random spot clear of the TV and of the other alarms; re-rolled a few times. */
+    /** True if an alarm drawn at (x, y) would sit on (or right next to) the TV window. */
+    private fun alarmHitsTv(x: Float, y: Float): Boolean {
+        val tv = overlay.tvRect()
+        val pad = dp(24f) // the TV window swallows touches, so keep a safe margin around it
+        return x + dp(ALARM_W_DP) > tv.left - pad && x < tv.right + pad &&
+            y + dp(ALARM_H_DP) > tv.top - pad && y < tv.bottom + pad
+    }
+
+    /** If the (dragged / re-laid-out) TV now covers an un-pulled alarm, move it clear. */
+    private fun moveAlarmsOffTv() {
+        for (a in state.alarms) {
+            if (!a.pulled && alarmHitsTv(a.x, a.y)) replaceAlarm(a)
+        }
+    }
+
+    /**
+     * A spot for an alarm that is never on the TV (a TV on top would eat the tap and open the
+     * file picker instead of pulling the alarm). Preference order: random spots that also keep
+     * clear of the other alarms; random spots that only keep clear of the TV; a systematic scan
+     * of the whole usable area; and only if the TV covers all of it, the corner farthest from it.
+     */
     private fun randomAlarmPos(placed: List<Alarm>): Pair<Float, Float> {
         val (w, h) = overlay.screenSize()
         val aw = dp(ALARM_W_DP)
@@ -235,19 +266,37 @@ class GameEngine(
         val bottom = overlay.safeBottom()
         val maxX = max(1f, w - aw - side * 2)
         val maxY = max(1f, h - ah - top - bottom)
-        val tv = overlay.tvRect()
-        val pad = dp(20f)
-        var x = side
-        var y = top
-        for (i in 0 until 25) {
-            x = side + Random.nextFloat() * maxX
-            y = top + Random.nextFloat() * maxY
-            val behindTv = x + aw > tv.left - pad && x < tv.right + pad &&
-                y + ah > tv.top - pad && y < tv.bottom + pad
-            val stacked = placed.any { abs(it.x - x) < aw + dp(40f) && abs(it.y - y) < ah + dp(40f) }
-            if (!behindTv && !stacked) break
+
+        fun stacked(x: Float, y: Float) =
+            placed.any { abs(it.x - x) < aw + dp(40f) && abs(it.y - y) < ah + dp(40f) }
+
+        for (i in 0 until 60) { // 1: clear of the TV and of the other alarms
+            val x = side + Random.nextFloat() * maxX
+            val y = top + Random.nextFloat() * maxY
+            if (!alarmHitsTv(x, y) && !stacked(x, y)) return x to y
         }
-        return x to y
+        for (i in 0 until 60) { // 2: clear of the TV (many alarms: allow them closer together)
+            val x = side + Random.nextFloat() * maxX
+            val y = top + Random.nextFloat() * maxY
+            if (!alarmHitsTv(x, y)) return x to y
+        }
+        // 3: scan the whole usable area for any spot off the TV (random start, so it isn't a pattern)
+        val stepX = max(1f, aw)
+        val stepY = max(1f, ah)
+        val cols = (maxX / stepX).toInt() + 1
+        val rows = (maxY / stepY).toInt() + 1
+        val start = Random.nextInt(cols * rows)
+        for (k in 0 until cols * rows) {
+            val idx = (start + k) % (cols * rows)
+            val x = side + min(maxX, (idx % cols) * stepX)
+            val y = top + min(maxY, (idx / cols) * stepY)
+            if (!alarmHitsTv(x, y)) return x to y
+        }
+        // 4: the TV covers the whole usable area (tiny window): the far corner at least
+        val tv = overlay.tvRect()
+        val cx = if (tv.centerX() > w / 2f) side else side + maxX
+        val cy = if (tv.centerY() > h / 2f) top else top + maxY
+        return cx to cy
     }
 
     /** The whole set of FireAlarmAmount alarms; all show at once, a pulled one stays gone. */
@@ -388,7 +437,12 @@ class GameEngine(
         setTvMode("off")
         silenceAll()
         haptics.stopAll()
-        allSounds.forEach { it.release() } // free the 16 decoders between rounds (re-made lazily)
+        // free the decoders between rounds (re-made lazily); keep the death audio if it is
+        // waiting to resume with the lock-screen tail
+        for (snd in allSounds) {
+            if (holdDeathAudio && (snd === noiseDeath1 || snd === noiseDeathMusic)) continue
+            snd.release()
+        }
         syncOverlay()
         tickJob?.cancel()
     }
@@ -504,14 +558,21 @@ class GameEngine(
     private fun die() {
         tvOn = false
         haptics.jumpscare()
+        deathLocked = false
+        val lockPlan = cfg.deathAction == DeathAction.LOCK && !cfg.testMode && lockAvailable()
         if (isHijacked) {
             playFx("hijackJumpscare.webp", JUMPSCARE_MS)
             hijackJumpscareS.play()
             scope.launch {
                 delay(HIJACK_JUMPSCARE_LEAD_MS)
                 isHijacked = false
-                delay(DEATH_CONSEQUENCE_DELAY_MS)
-                onDeath()
+                if (lockPlan) {
+                    delay(JUMPSCARE_MS - HIJACK_JUMPSCARE_LEAD_MS) // lock right after the jumpscare
+                    onLockNow()
+                } else {
+                    delay(DEATH_CONSEQUENCE_DELAY_MS)
+                    onDeath()
+                }
             }
         } else {
             playFx("jumpscare.webp", JUMPSCARE_MS)
@@ -519,10 +580,43 @@ class GameEngine(
             noiseDeathMusic.play()
             isHijacked = false
             scope.launch {
-                delay(DEATH_CONSEQUENCE_DELAY_MS)
-                onDeath() // 5.2 s after the jumpscare, like v2
+                if (lockPlan) {
+                    delay(LOCK_PREPARE_MS)
+                    onLockPrepare() // the activity locks the phone itself while PAUSE is showing
+                    delay(JUMPSCARE_MS - LOCK_PREPARE_MS)
+                    if (!deathLocked) onLockNow() // fallback: it never got going, lock at the end
+                } else {
+                    delay(DEATH_CONSEQUENCE_DELAY_MS)
+                    onDeath() // 5.2 s after the jumpscare, like v2
+                }
             }
         }
+    }
+
+    // ---- lock-screen hand-off (called by LockScreenActivity through the service) ----
+
+    /** The phone just got locked mid-PAUSE: freeze the death audio and tidy the round away. */
+    fun onDeathLocked() {
+        if (deathLocked) return
+        deathLocked = true
+        holdDeathAudio = true
+        noiseDeath1.pause()
+        noiseDeathMusic.pause()
+        endRound()
+    }
+
+    /** The phone was woken and the PLAY + fade-out tail is starting: resume the audio with it. */
+    fun onDeathTailStarted() {
+        if (!holdDeathAudio) return
+        noiseDeath1.playFrom(TAIL_START_SEC)
+        noiseDeathMusic.playFrom(TAIL_START_SEC)
+    }
+
+    fun onDeathTailDone() {
+        if (!holdDeathAudio) return
+        holdDeathAudio = false
+        noiseDeath1.release()
+        noiseDeathMusic.release()
     }
 
     private fun updateTvAndAlarms(cx: Float, cy: Float) {
