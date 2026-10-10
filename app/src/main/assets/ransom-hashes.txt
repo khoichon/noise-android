@@ -1,0 +1,16 @@
+# SHA-256 hashes of the RANS0M executables that hijack Noise when fed to the TV.
+# One hash per line; anything after '#' is a comment. Same list as the desktop port
+# (electron/ransom-hashes.js). To accept a new build (e.g. a RANS0M Android APK), add its
+# SHA-256 here and rebuild:  sha256sum RANS0M.apk
+#
+# Ixar's original ransomdoors Windows executables (noisedoors v2 Global.ransomHashes):
+b38d822c7b83a5fa5c20dccf22188529f9ad75caa1e15885b994f5787f733bb8
+7abedb7bd160a5b1ef7467dd58dd70b6aa50b2983f54c7dab0cd100adb645dcc
+0f2051005cf9120f471f4d8f3c92e366eb330200c539c5019cfda5be6cd8435e
+390cd31ac20cdeff0127d074aff0728157fbc5ef1f93e8ba98042bf22c1c6fc6
+# rans0m-crossplatform 3.0.0-port.1 (GitHub Actions run 37430884290):
+a05cf49169405800d3995a2f01e06ccc1d664ba093bd9bb0e62583d0139853f3 # Windows portable .exe
+6788c886fe2a7c6b6fb533fe13f52d896a29b645e19639e86b00cfb40ddf2a9f # Windows setup .exe
+de0053fc291edfdebb660cecbfbe3ab5c6bb5b4c6e08a20bd7e8941357abe601 # Linux .AppImage
+52591945c62a357a093d45bab2a13ef95636e5e16c40ea960e428123ce58365e # macOS RANS0M.app executable (arm64)
+0c4a3840fe0621600d54a63cec4e627ae426489224fb3ec001358153fa8b6a29 # macOS RANS0M.app executable (x64)

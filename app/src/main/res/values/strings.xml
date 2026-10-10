@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">NOISE</string>
+    <string name="tile_label">Call NOISE</string>
+    <string name="feed_label">Feed the NOISE TV</string>
+</resources>
