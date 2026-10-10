@@ -56,6 +56,12 @@ class GameEngine(
         private const val REVERSE_FALLBACK_MS = 59580L
         private const val REVERSE_SPEED_DP = 500f
         private const val REVERSE_MIN_MS = 1500L
+
+        // When more than half of each fullscreen scene is transparent for good (measured from the
+        // encoded frames), the overlay stops swallowing touches and drops to 79% opacity.
+        private const val JUMPSCARE_PASS_MS = 8200L
+        private const val HIJACK_JUMPSCARE_PASS_MS = 6800L
+        private const val FIRE_ALARM_PASS_MS = 13680L
     }
 
     /** Called ~5.2 s after the jumpscare starts (the service runs the opt-in consequences). */
@@ -341,13 +347,27 @@ class GameEngine(
         if (roundActive && !fxPlaying) overlay.showTv() else overlay.hideTv()
     }
 
+    private fun passThroughAtMs(file: String): Long = when (file) {
+        "jumpscare.webp" -> JUMPSCARE_PASS_MS
+        "hijackJumpscare.webp" -> HIJACK_JUMPSCARE_PASS_MS
+        "firealarm.webp" -> FIRE_ALARM_PASS_MS
+        else -> 0L
+    }
+
     private fun playFx(file: String, ms: Long) {
         fxJob?.cancel()
         fxPlaying = true
         syncOverlay()
         overlay.playFx(file)
         fxJob = scope.launch {
-            delay(ms)
+            val passAt = passThroughAtMs(file)
+            if (passAt in 1 until ms) {
+                delay(passAt)
+                overlay.setPassThrough(true) // most of the screen is back: let touches through
+                delay(ms - passAt)
+            } else {
+                delay(ms)
+            }
             endRound()
         }
     }

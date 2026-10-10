@@ -32,6 +32,7 @@ class OverlayController(private val context: Context, val state: SceneState) {
     private var tvLp: WindowManager.LayoutParams = newTvParams()
     private var dragStartX = 0
     private var lastFail = 0L
+    private var passThrough = false
 
     /** After a failed addView (permission revoked?) don't retry on every game tick. */
     private fun recentlyFailed() = lastFail != 0L && SystemClock.uptimeMillis() - lastFail < 2000
@@ -120,7 +121,16 @@ class OverlayController(private val context: Context, val state: SceneState) {
 
     private fun takeoverParams(): WindowManager.LayoutParams {
         val (w, h) = screenSize()
-        return baseParams(w, h).apply { x = 0; y = 0 }
+        return baseParams(w, h).apply {
+            x = 0
+            y = 0
+            if (passThrough) {
+                // Touches fall through to the app underneath. Android 12+ only lets touches pass
+                // an overlay that is at most 80% opaque, hence 79%.
+                flags = flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                alpha = PASS_THROUGH_ALPHA
+            }
+        }
     }
 
     /** The TV window's rectangle in screen coordinates. */
@@ -153,6 +163,7 @@ class OverlayController(private val context: Context, val state: SceneState) {
         if (show == takeoverShown) return
         if (show) {
             if (recentlyFailed()) return
+            passThrough = false
             try {
                 wm.addView(scene, takeoverParams())
                 takeoverShown = true
@@ -167,7 +178,18 @@ class OverlayController(private val context: Context, val state: SceneState) {
         } else {
             runCatching { wm.removeView(scene) }
             takeoverShown = false
+            passThrough = false
         }
+    }
+
+    /**
+     * Near the end of a fullscreen scene, once most of the screen is visible again: stop
+     * swallowing touches and drop the overlay to 79% opacity so the phone is usable again.
+     */
+    fun setPassThrough(on: Boolean) {
+        if (on == passThrough) return
+        passThrough = on
+        if (takeoverShown) runCatching { wm.updateViewLayout(scene, takeoverParams()) }
     }
 
     /** Rotation / resolution change: resize both windows. */
@@ -196,5 +218,6 @@ class OverlayController(private val context: Context, val state: SceneState) {
 
     private companion object {
         const val TAG = "NoiseOverlay"
+        const val PASS_THROUGH_ALPHA = 0.79f
     }
 }

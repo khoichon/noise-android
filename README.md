@@ -50,6 +50,12 @@ only spent while a round is running, so the main levers are fewer / shorter roun
 - frees all 16 audio decoders when the round ends;
 - under Android's **Battery Saver**: ~30 Hz chase ticks and no vibration.
 
+**Touch pass-through at the end of a scene:** once more than half of a fullscreen scene is
+transparent for good, the overlay stops swallowing touches and drops to 79% opacity, so you can use
+your phone again while the last frames fade out (measured from the frames: jumpscare from 8.2 s of
+9.84 s, hijack jumpscare from 6.8 s of 9.84 s, fire alarm from 13.7 s of 22 s). 79% because
+Android 12+ only lets touches pass through overlays that are at most 80% opaque.
+
 ## Safety valves (the takeover swallows touches, so there are several ways out)
 Home/back gestures still work; the notification's **Stop** works (pull the shade down); the round
 timeout ends the round; the takeover is never attached outside a round.
