@@ -20,7 +20,9 @@ Settings.
 4. **Hijack (RANS0M):** tap the TV while Noise is out (or use *Feed the TV*, or share a file to
    the app) and pick a known RANS0M executable; Noise flies home, the TV plays the emerge in
    reverse, and a slower, stuttering hijacked Noise comes out. Dying or pulling the last alarm
-   cures it. (Same SHA-256 check as the original; list in `assets/ransom-hashes.txt`.)
+   cures it. The hijacked Noise **stays paused until you first touch or move**, so the round
+   starts when you decide to. (Same SHA-256 check as the original; list in
+   `assets/ransom-hashes.txt`.)
 
 | Desktop original | Android |
 |---|---|
@@ -53,10 +55,18 @@ root `.github/` if this folder isn't the repo root). minSdk 28, target 35.
 First run: *Allow display over other apps*, allow notifications, Start NOISE.
 
 ## Assets
-Converted from the desktop assets to keep the APK small (~20 MB instead of ~280 MB):
-GIFs → animated WebP (TV clips 384x512, fullscreen scenes 640x360, same frame timing),
-WAV → Ogg Vorbis. The tiny cursor GIFs and PNGs are unchanged. Fullscreen scenes are shown
-*fitted* on black rather than stretched, since they're 16:9 and phones are tall.
+Converted from the desktop assets to keep the APK small:
+GIFs -> animated WebP, WAV -> Ogg Vorbis. The tiny cursor GIFs and PNGs are unchanged.
+
+**Fullscreen scenes are remade in portrait** (360x720, 9:18) straight from the original 960x540
+frames, with their real transparency kept (they fade in and out over whatever is on screen, so
+nothing is drawn behind them). Each is the original's centre 9:18 strip at full height, same 25 fps
+timing: the jumpscare static/VHS screen with the PAUSE / PLAY text re-placed at the bottom-left,
+the glitching face of the hijack scare, and the fire alarm shutter coming down with its hazard
+stripe, fire and smoke. They are scaled to *cover* the screen and centre-cropped (no borders); in
+landscape they are turned a quarter so the composition stays upright. The shutter's two yellow
+door handles sit outside the portrait strip, so only the centre seam and panel detail show.
+TV clips are 384x512 as before.
 
 ## Status
 Written and compile-checked against the Android 34 API with stubbed AndroidX, but **not run on a

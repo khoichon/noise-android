@@ -1,8 +1,8 @@
 name: Build Android APK
 
 on:
-  workflow_dispatch: {}
-  push: {}
+  push:
+  workflow_dispatch:
 
 jobs:
   build:

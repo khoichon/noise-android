@@ -92,6 +92,7 @@ class GameEngine(
     private var emerging = false
     private var isHijacked = false
     private var hijackPause = false
+    private var hijackWaiting = false // a freshly emerged hijacked Noise holds still until you first move
     private var reversing = false
     private var reversingFlight = false
     private var roundActive = false   // emerge started .. round fully cleaned up
@@ -320,6 +321,7 @@ class GameEngine(
         fxJob?.cancel()
         tvOn = false
         isHijacked = false
+        hijackWaiting = false
         fxPlaying = false
         roundActive = false
         overlay.stopFx()
@@ -397,6 +399,7 @@ class GameEngine(
             cursorPositions.add(Pos(t - 10L * (20 - i), lerp(noiseX, tx, i / 20f), lerp(noiseY, ty, i / 20f)))
         }
 
+        hijackWaiting = isHijacked // hijacked Noise starts paused; your first touch/move releases it
         tvOn = true
         emerging = false
         broadcastNoise()
@@ -501,7 +504,10 @@ class GameEngine(
             hijackSong.pause()
         }
 
-        val active = ((!isHijacked && (moved || tapDebounce > 0)) || (isHijacked && !hijackPause)) && tvOn
+        if (hijackWaiting && (moved || tapDebounce > 0)) hijackWaiting = false
+
+        val active = ((!isHijacked && (moved || tapDebounce > 0)) ||
+            (isHijacked && !hijackPause && !hijackWaiting)) && tvOn
 
         if (!active) {
             noiseIdle.pause()

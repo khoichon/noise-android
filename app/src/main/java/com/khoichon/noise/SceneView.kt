@@ -4,19 +4,18 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.ImageDecoder
 import android.graphics.Paint
 import android.graphics.drawable.AnimatedImageDrawable
 import android.graphics.drawable.Drawable
 import android.view.MotionEvent
 import android.view.View
-import kotlin.math.min
+import kotlin.math.max
 
 /**
  * The screen takeover: a transparent full-screen overlay that draws Noise's cursor and the fire
- * alarms, and swallows touches (your finger is the "cursor" Noise mirrors). While a fullscreen
- * scene (jumpscare / fire alarm) plays it paints it over everything on black.
+ * alarms, and swallows touches (your finger is the "cursor" Noise mirrors). Fullscreen scenes
+ * (jumpscare / fire alarm) are drawn over everything, keeping their own transparency.
  */
 class SceneView(context: Context, private val st: SceneState) : View(context) {
     var listener: OverlayListener? = null
@@ -26,7 +25,6 @@ class SceneView(context: Context, private val st: SceneState) : View(context) {
     private var currentNoise: Drawable? = null
     private var currentNoiseName = ""
     private var fx: AnimatedImageDrawable? = null
-    private val black = Paint().apply { color = Color.BLACK }
     private val alarmPaint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val alarmBitmap: Bitmap? by lazy {
         runCatching {
@@ -75,12 +73,23 @@ class SceneView(context: Context, private val st: SceneState) : View(context) {
 
         val scene = fx
         if (scene != null) {
-            canvas.drawRect(0f, 0f, w, h, black)
+            // The scenes are portrait (360x720) and genuinely transparent where the original is,
+            // so nothing is painted behind them: whatever is under the overlay shows through.
+            // Scaled to COVER the screen and centre-cropped, no borders. If the phone is held in
+            // landscape the scene is rotated a quarter turn so its composition stays upright.
+            val landscape = w > h
+            val dw = if (landscape) h else w
+            val dh = if (landscape) w else h
             val iw = scene.intrinsicWidth.toFloat().coerceAtLeast(1f)
             val ih = scene.intrinsicHeight.toFloat().coerceAtLeast(1f)
-            val s = min(w / iw, h / ih) // fit: keeps the 16:9 scene undistorted on a tall phone
+            val s = max(dw / iw, dh / ih)
             canvas.save()
-            canvas.translate((w - iw * s) / 2f, (h - ih * s) / 2f)
+            if (landscape) {
+                canvas.translate(w, 0f)
+                canvas.rotate(90f)
+            }
+            canvas.clipRect(0f, 0f, dw, dh)
+            canvas.translate((dw - iw * s) / 2f, (dh - ih * s) / 2f)
             canvas.scale(s, s)
             scene.setBounds(0, 0, iw.toInt(), ih.toInt())
             scene.draw(canvas)
